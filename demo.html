@@ -87,7 +87,8 @@ function fileResp(body) {
     ok: body != null,
     status: body != null ? 200 : 404,
     body: body != null ? new Response(body).body : null,
-    text: function () { return Promise.resolve(body != null ? body : ''); }
+    text: function () { return Promise.resolve(body != null ? body : ''); },
+    arrayBuffer: function () { return Promise.resolve(new TextEncoder().encode(body != null ? body : '').buffer); }
   });
 }
 window.fetch = function (url) {

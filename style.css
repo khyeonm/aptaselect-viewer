@@ -27,9 +27,16 @@
   transition: background 0.12s;
 }
 .apta-drag:hover { background: #94a3b8; }
-.apta-chart-head { font-size: 13px; margin-bottom: 2px; }
+.apta-chart-head { font-size: 13px; margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
 .apta-chart-head b { color: #111; }
 .apta-total { color: #888; font-weight: 400; }
+.apta-dl {
+  margin-left: auto;
+  border: 1px solid #d1d5db; background: #fff; color: #374151;
+  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  white-space: nowrap;
+}
+.apta-dl:hover { background: #f3f4f6; }
 .apta-chart-empty { color: #b45309; font-size: 12px; padding: 4px 0 8px; }
 .apta-svg { width: 100%; max-height: 220px; display: block; }
 .apta-grid { stroke: #eee; stroke-width: 1; }

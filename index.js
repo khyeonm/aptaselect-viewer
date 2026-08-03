@@ -59,6 +59,68 @@
   function fmt(n) { return Number(n).toLocaleString(); }
   function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
 
+  // ── ZIP (store / no compression) — bundle all stage TSVs + summary so the
+  // whole result downloads as one file, built entirely in the browser (no libs,
+  // no server changes). ──
+  var _crcTable = (function () {
+    var t = [];
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function _crc32(bytes) {
+    var c = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) c = _crcTable[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function _makeZip(files) {
+    var enc = new TextEncoder();
+    var chunks = [], central = [], offset = 0;
+    function u16(n) { return [n & 0xFF, (n >> 8) & 0xFF]; }
+    function u32(n) { return [n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >> 24) & 0xFF]; }
+    files.forEach(function (f) {
+      var nameB = enc.encode(f.name);
+      var crc = _crc32(f.bytes), size = f.bytes.length;
+      var lfh = [].concat(u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+        u32(crc), u32(size), u32(size), u16(nameB.length), u16(0));
+      chunks.push(new Uint8Array(lfh), nameB, f.bytes);
+      var cdh = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+        u32(crc), u32(size), u32(size), u16(nameB.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset));
+      central.push({ h: new Uint8Array(cdh), n: nameB });
+      offset += lfh.length + nameB.length + size;
+    });
+    var cStart = offset, cSize = 0;
+    central.forEach(function (c) { chunks.push(c.h, c.n); cSize += c.h.length + c.n.length; });
+    var eocd = [].concat(u32(0x06054b50), u16(0), u16(0), u16(central.length), u16(central.length),
+      u32(cSize), u32(cStart), u16(0));
+    chunks.push(new Uint8Array(eocd));
+    var total = chunks.reduce(function (a, c) { return a + c.length; }, 0);
+    var out = new Uint8Array(total), p = 0;
+    chunks.forEach(function (c) { out.set(c, p); p += c.length; });
+    return out;
+  }
+  function downloadAllZip() {
+    var names = STAGES.map(function (s) { return s.file; }).concat(['summary.txt']);
+    Promise.all(names.map(function (n) {
+      return fetch(fileUrl(n))
+        .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
+        .then(function (buf) { return buf ? { name: n, bytes: new Uint8Array(buf) } : null; })
+        .catch(function () { return null; });
+    })).then(function (files) {
+      files = files.filter(Boolean);
+      if (!files.length) { alert('No result files available to download.'); return; }
+      var blob = new Blob([_makeZip(files)], { type: 'application/zip' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'aptaselect_results.zip';
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    });
+  }
+
   function fetchText(name) {
     return fetch(fileUrl(name)).then(function (r) {
       if (!r.ok) throw new Error(name + ': HTTP ' + r.status);
@@ -227,6 +289,7 @@
 
     var head = '<div class="apta-chart-head"><b>Reads passing each stage</b>' +
       (state.summary && state.summary.total ? '<span class="apta-total"> · ' + fmt(state.summary.total) + ' read pairs</span>' : '') +
+      '<button class="apta-dl" id="apta-dl-all" title="Download all stage tables + summary as a .zip">↓ Download all (.zip)</button>' +
       '</div>';
     var box = document.createElement('div');
     box.className = 'apta-chart';
@@ -317,6 +380,8 @@
 
   function bindEvents() {
     var el = state.root;
+    var dl = el.querySelector('#apta-dl-all');
+    if (dl) dl.addEventListener('click', downloadAllZip);
     el.querySelectorAll('.apta-tab').forEach(function (b) {
       b.addEventListener('click', function () {
         var i = parseInt(this.getAttribute('data-stage'), 10);
