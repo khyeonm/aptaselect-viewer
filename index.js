@@ -230,71 +230,78 @@
     return html;
   }
 
-  // ── Trend-line chart (inline SVG) — from summary.txt only ──
+  // ── Trend-line chart ──
+  // The SVG is drawn at the panel's ACTUAL pixel size (viewBox == element size,
+  // so scaling is 1:1 — no distortion of shapes or text) and redrawn on resize.
+  // Dragging the divider grows the panel, which grows the graph proportionally.
   function buildChart() {
-    var W = 640, H = 210, padL = 56, padR = 20, padT = 24, padB = 40;
-    var vals = STAGES.map(function (_, i) { var p = stagePass(i); return p != null ? p : 0; });
-    var haveData = vals.some(function (v) { return v > 0; });
-    var innerW = W - padL - padR, innerH = H - padT - padB;
-
-    // "nice" rounding step (a tenth of the magnitude), so axis bounds land on
-    // round numbers without overshooting — e.g. 10,662 rounds to 11,000, not
-    // 15,000.
-    function niceStep(v) { v = Math.abs(v) || 1; var mag = Math.pow(10, Math.floor(Math.log10(v))); return Math.max(1, mag / 10); }
-    function roundUp(v) { var s = niceStep(v); return Math.ceil(v / s) * s; }
-    function roundDown(v) { var s = niceStep(v); return Math.floor(v / s) * s; }
-
-    // y-axis bounds: leave ~10% headroom above the tallest point so Join isn't
-    // glued to the ceiling. When every stage sits high above zero (small
-    // relative differences), start the axis above zero — a "broken axis" — so
-    // the stage-to-stage drop stays legible instead of looking flat.
-    var dataMax = Math.max.apply(null, vals);
-    var pos = vals.filter(function (v) { return v > 0; });
-    var dataMin = pos.length ? Math.min.apply(null, pos) : 0;
-    var span = dataMax - dataMin;
-    var broken = false, yMin = 0, yMax = roundUp((dataMax * 1.1) || 1);
-    if (haveData && span > 0 && dataMin > 0.45 * dataMax) {
-      var lo = roundDown(dataMin - span * 0.35);
-      if (lo > 0) { broken = true; yMin = lo; yMax = roundUp(dataMax + span * 0.15); }
-    }
-    if (yMax <= yMin) yMax = yMin + 1;
-
-    function x(i) { return padL + innerW * i / (STAGES.length - 1); }
-    function y(v) { return padT + innerH * (1 - (v - yMin) / (yMax - yMin)); }
-
-    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="apta-svg" preserveAspectRatio="xMidYMid meet">';
-    [yMin, (yMin + yMax) / 2, yMax].forEach(function (v) {
-      var yy = y(v);
-      svg += '<line class="apta-grid" x1="' + padL + '" y1="' + yy + '" x2="' + (W - padR) + '" y2="' + yy + '"/>';
-      svg += '<text class="apta-ylab" x="' + (padL - 8) + '" y="' + (yy + 4) + '">' + fmt(Math.round(v)) + '</text>';
-    });
-    // broken-axis mark: a small double slash at the base of the y-axis.
-    if (broken) {
-      var by = padT + innerH;
-      svg += '<path class="apta-break" d="M' + (padL - 5) + ',' + (by - 1) + ' l9,-5 M' + (padL - 5) + ',' + (by + 4) + ' l9,-5"/>';
-    }
-    if (haveData) {
-      var pts = vals.map(function (v, i) { return x(i) + ',' + y(v); }).join(' ');
-      svg += '<polyline class="apta-line" points="' + pts + '"/>';
-    }
-    vals.forEach(function (v, i) {
-      if (haveData) {
-        svg += '<circle class="apta-dot" cx="' + x(i) + '" cy="' + y(v) + '" r="4"/>';
-        svg += '<text class="apta-val" x="' + x(i) + '" y="' + (y(v) - 10) + '">' + fmt(v) + '</text>';
-      }
-      svg += '<text class="apta-xlab" x="' + x(i) + '" y="' + (H - 16) + '">' + STAGES[i].label + '</text>';
-      svg += '<text class="apta-xsub" x="' + x(i) + '" y="' + (H - 3) + '">' + STAGES[i].sub + '</text>';
-    });
-    svg += '</svg>';
-
+    var haveData = STAGES.some(function (_, i) { return (stagePass(i) || 0) > 0; });
     var head = '<div class="apta-chart-head"><b>Reads passing each stage</b>' +
       (state.summary && state.summary.total ? '<span class="apta-total"> · ' + fmt(state.summary.total) + ' read pairs</span>' : '') +
       '<button class="apta-dl" id="apta-dl-all" title="Download all stage tables + summary as a .zip">↓ Download all (.zip)</button>' +
       '</div>';
     var box = document.createElement('div');
     box.className = 'apta-chart';
-    box.innerHTML = head + svg + (haveData ? '' : '<div class="apta-chart-empty">summary.txt not found — trend unavailable</div>');
+    box.innerHTML = head;
+    var holder = document.createElement('div');
+    holder.className = 'apta-svg-holder';
+    if (!haveData) holder.innerHTML = '<div class="apta-chart-empty">summary.txt not found — trend unavailable</div>';
+    box.appendChild(holder);
+    state._chartHolder = holder;
     return box;
+  }
+
+  function drawChart() {
+    var holder = state._chartHolder;
+    if (!holder || !holder.isConnected) return;
+    var W = holder.clientWidth, H = holder.clientHeight;
+    if (W < 40 || H < 40) return;
+    var vals = STAGES.map(function (_, i) { var p = stagePass(i); return p != null ? p : 0; });
+    if (!vals.some(function (v) { return v > 0; })) return;
+
+    var padL = 56, padR = 20, padT = 22, padB = 40;
+    function niceStep(v) { v = Math.abs(v) || 1; var mag = Math.pow(10, Math.floor(Math.log10(v))); return Math.max(1, mag / 10); }
+    function roundUp(v) { var s = niceStep(v); return Math.ceil(v / s) * s; }
+    function roundDown(v) { var s = niceStep(v); return Math.floor(v / s) * s; }
+    var dataMax = Math.max.apply(null, vals);
+    var pos = vals.filter(function (v) { return v > 0; });
+    var dataMin = pos.length ? Math.min.apply(null, pos) : 0;
+    var span = dataMax - dataMin;
+    var broken = false, yMin = 0, yMax = roundUp((dataMax * 1.1) || 1);
+    if (span > 0 && dataMin > 0.45 * dataMax) {
+      var lo = roundDown(dataMin - span * 0.35);
+      if (lo > 0) { broken = true; yMin = lo; yMax = roundUp(dataMax + span * 0.15); }
+    }
+    if (yMax <= yMin) yMax = yMin + 1;
+
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+    function x(i) { return padL + innerW * i / (STAGES.length - 1); }
+    function y(v) { return padT + innerH * (1 - (v - yMin) / (yMax - yMin)); }
+
+    // viewBox matches the pixel box → 1:1, so text keeps its CSS px size.
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="apta-svg" preserveAspectRatio="none">';
+    [yMin, (yMin + yMax) / 2, yMax].forEach(function (v) {
+      var yy = y(v);
+      svg += '<line class="apta-grid" x1="' + padL + '" y1="' + yy + '" x2="' + (W - padR) + '" y2="' + yy + '"/>';
+      svg += '<text class="apta-ylab" x="' + (padL - 8) + '" y="' + (yy + 4) + '">' + fmt(Math.round(v)) + '</text>';
+    });
+    if (broken) {
+      var by = padT + innerH;
+      svg += '<path class="apta-break" d="M' + (padL - 5) + ',' + (by - 1) + ' l9,-5 M' + (padL - 5) + ',' + (by + 4) + ' l9,-5"/>';
+    }
+    var pts = vals.map(function (v, i) { return x(i) + ',' + y(v); }).join(' ');
+    svg += '<polyline class="apta-line" points="' + pts + '"/>';
+    vals.forEach(function (v, i) {
+      // Anchor the edge labels inward so "Join" / "2nd Sort" don't clip at the
+      // panel edges (style attr overrides the CSS text-anchor).
+      var anc = i === 0 ? 'start' : (i === STAGES.length - 1 ? 'end' : 'middle');
+      svg += '<circle class="apta-dot" cx="' + x(i) + '" cy="' + y(v) + '" r="4"/>';
+      svg += '<text class="apta-val" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (y(v) - 10) + '">' + fmt(v) + '</text>';
+      svg += '<text class="apta-xlab" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (H - 16) + '">' + STAGES[i].label + '</text>';
+      svg += '<text class="apta-xsub" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (H - 3) + '">' + STAGES[i].sub + '</text>';
+    });
+    svg += '</svg>';
+    holder.innerHTML = svg;
   }
 
   // ── Tabs fused to the table + pager ──
@@ -366,6 +373,14 @@
     wrap.appendChild(body);
     el.appendChild(wrap);
     bindEvents();
+    // Draw the chart at its real pixel size, and redraw whenever the panel
+    // resizes (e.g. the user drags the divider) so the graph scales 1:1.
+    requestAnimationFrame(drawChart);
+    if (state._ro) { state._ro.disconnect(); state._ro = null; }
+    if (window.ResizeObserver && state._chartHolder) {
+      state._ro = new ResizeObserver(function () { drawChart(); });
+      state._ro.observe(state._chartHolder);
+    }
     handle.addEventListener('mousedown', function (e) {
       _drag.on = true;
       _drag.startY = e.clientY;
@@ -451,7 +466,8 @@
     destroy: function () {
       if (_cur && _cur.reader) { try { _cur.reader.cancel(); } catch (e) {} }
       _cur = null;
-      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0 };
+      if (state._ro) { try { state._ro.disconnect(); } catch (e) {} }
+      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0 };
     }
   };
 })();
