@@ -7,8 +7,8 @@
 <link rel="stylesheet" href="style.css">
 <style>
   body { margin: 0; background: #f3f4f6; }
-  #host { max-width: 920px; margin: 24px auto; background: #fff; border: 1px solid #e5e7eb;
-          border-radius: 8px; overflow: hidden; height: 80vh; overflow-y: auto; }
+  #host { max-width: 960px; margin: 24px auto; background: #fff; border: 1px solid #e5e7eb;
+          border-radius: 8px; overflow: hidden; height: 78vh; }
   .demo-note { max-width: 920px; margin: 12px auto; font: 13px system-ui; color: #6b7280; }
 </style>
 </head>
@@ -28,7 +28,7 @@ var BASE = "ACGT";
 function nt4(i) { return BASE[(i >> 6) & 3] + BASE[(i >> 4) & 3] + BASE[(i >> 2) & 3] + BASE[i & 3]; }
 
 var A = [];
-for (var i = 0; i < 30; i++) A.push({ count: 400 - 9 * i, seq: PRE + nt4(i) + POST });
+for (var i = 0; i < 30; i++) A.push({ count: 200 - 5 * i, seq: PRE + nt4(i) + POST });
 
 var B40 = [
   "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT",
@@ -47,7 +47,7 @@ var C60 = [
   "AATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATT",
   "CCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGG"
 ];
-var Cc = [60, 55, 50, 45, 40];
+var Cc = [1600, 1500, 1400, 1300, 1200];
 var C = C60.map(function (s, i) { return { count: Cc[i], seq: s }; });
 
 function tsv(rows) {

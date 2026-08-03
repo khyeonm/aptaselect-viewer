@@ -1,4 +1,8 @@
 .apta {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 420px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: #1a1a1a;
   font-size: 13px;
@@ -6,15 +10,23 @@
 .apta-loading, .apta-error { padding: 24px; color: #666; }
 .apta-error { color: #c0392b; }
 
-/* ── Trend chart, pinned to the top ── */
+/* ── Top panel: trend chart ── */
 .apta-chart {
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  flex: 0 0 auto;
+  overflow: auto;
   background: #fff;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 12px 16px 4px;
+  padding: 12px 16px 6px;
+  box-sizing: border-box;
 }
+
+/* Draggable divider between graph (top) and table (bottom). */
+.apta-drag {
+  flex: 0 0 6px;
+  cursor: row-resize;
+  background: #e5e7eb;
+  transition: background 0.12s;
+}
+.apta-drag:hover { background: #94a3b8; }
 .apta-chart-head { font-size: 13px; margin-bottom: 2px; }
 .apta-chart-head b { color: #111; }
 .apta-total { color: #888; font-weight: 400; }
@@ -29,8 +41,14 @@
 .apta-xsub { fill: #aaa; font-size: 9px; text-anchor: middle; }
 .apta-break { stroke: #9ca3af; stroke-width: 1.5; fill: none; }
 
-/* ── Body ── */
-.apta-body { padding: 14px 16px 20px; }
+/* ── Bottom panel: tabs + table + pager ── */
+.apta-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px 20px;
+  box-sizing: border-box;
+}
 
 /* Excel-style sheet tabs fused to the table panel below them. */
 .apta-tabs {

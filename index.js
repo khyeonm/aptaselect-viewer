@@ -35,8 +35,25 @@
     curPage: 0,
     page: { rows: [], total: 0 },  // rows currently shown (this page only)
     loading: false,
-    reqId: 0           // guards against out-of-order page responses
+    reqId: 0,          // guards against out-of-order page responses
+    chartH: 0          // user-chosen graph-panel height (px), preserved across renders
   };
+
+  // Drag-to-resize between the graph (top) and the table (bottom). Listeners are
+  // registered once; the handle's mousedown arms _drag on each render.
+  var _drag = { on: false, startY: 0, startH: 0, chart: null, wrap: null };
+  window.addEventListener('mousemove', function (e) {
+    if (!_drag.on) return;
+    var max = _drag.wrap.getBoundingClientRect().height - 160;
+    var h = _drag.startH + (e.clientY - _drag.startY);
+    h = Math.max(120, Math.min(h, Math.max(120, max)));
+    state.chartH = h;
+    _drag.chart.style.flex = '0 0 ' + h + 'px';
+    _drag.chart.style.height = h + 'px';
+  });
+  window.addEventListener('mouseup', function () {
+    if (_drag.on) { _drag.on = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; }
+  });
 
   function fileUrl(name) { return '/file/' + encodeURIComponent(name); }
   function fmt(n) { return Number(n).toLocaleString(); }
@@ -158,8 +175,10 @@
     var haveData = vals.some(function (v) { return v > 0; });
     var innerW = W - padL - padR, innerH = H - padT - padB;
 
-    // "nice" rounding step (half-decade), so axis bounds land on round numbers.
-    function niceStep(v) { v = Math.abs(v) || 1; var mag = Math.pow(10, Math.floor(Math.log10(v))); return Math.max(1, mag / 2); }
+    // "nice" rounding step (a tenth of the magnitude), so axis bounds land on
+    // round numbers without overshooting — e.g. 10,662 rounds to 11,000, not
+    // 15,000.
+    function niceStep(v) { v = Math.abs(v) || 1; var mag = Math.pow(10, Math.floor(Math.log10(v))); return Math.max(1, mag / 10); }
     function roundUp(v) { var s = niceStep(v); return Math.ceil(v / s) * s; }
     function roundDown(v) { var s = niceStep(v); return Math.floor(v / s) * s; }
 
@@ -269,10 +288,31 @@
     el.innerHTML = '';
     var wrap = document.createElement('div');
     wrap.className = 'apta';
-    wrap.appendChild(buildChart());
-    wrap.appendChild(buildBody());
+    var chart = buildChart();          // top panel (.apta-chart)
+    var handle = document.createElement('div');
+    handle.className = 'apta-drag';
+    handle.title = 'Drag to resize graph / table';
+    var body = buildBody();            // bottom panel (.apta-body)
+    // Preserve the user's chosen split across re-renders (tab / page changes).
+    if (state.chartH) {
+      chart.style.flex = '0 0 ' + state.chartH + 'px';
+      chart.style.height = state.chartH + 'px';
+    }
+    wrap.appendChild(chart);
+    wrap.appendChild(handle);
+    wrap.appendChild(body);
     el.appendChild(wrap);
     bindEvents();
+    handle.addEventListener('mousedown', function (e) {
+      _drag.on = true;
+      _drag.startY = e.clientY;
+      _drag.startH = chart.getBoundingClientRect().height;
+      _drag.chart = chart;
+      _drag.wrap = wrap;
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
   }
 
   function bindEvents() {
