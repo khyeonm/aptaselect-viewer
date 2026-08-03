@@ -1,0 +1,13 @@
+{
+  "name": "aptaselect-viewer",
+  "version": "1.0.0",
+  "description": "AptaSelect pipeline dashboard: per-stage count trend line + count-ranked sequence table with paging",
+  "plugin_type": "pipeline",
+  "pipeline_match": {
+    "names": ["aptaselect", "aptaselect-v2", "aptaselect2", "aptaselect_test"],
+    "required_files": ["summary.txt", "stage4_sort2_ranked.tsv"]
+  },
+  "extensions": [],
+  "entry": "index.js",
+  "style": "style.css"
+}

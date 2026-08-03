@@ -1,0 +1,106 @@
+.apta {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1a1a1a;
+  font-size: 13px;
+}
+.apta-loading, .apta-error { padding: 24px; color: #666; }
+.apta-error { color: #c0392b; }
+
+/* ── Trend chart, pinned to the top ── */
+.apta-chart {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 12px 16px 4px;
+}
+.apta-chart-head { font-size: 13px; margin-bottom: 2px; }
+.apta-chart-head b { color: #111; }
+.apta-total { color: #888; font-weight: 400; }
+.apta-chart-empty { color: #b45309; font-size: 12px; padding: 4px 0 8px; }
+.apta-svg { width: 100%; max-height: 220px; display: block; }
+.apta-grid { stroke: #eee; stroke-width: 1; }
+.apta-ylab { fill: #999; font-size: 10px; text-anchor: end; }
+.apta-line { fill: none; stroke: #2563eb; stroke-width: 2.5; stroke-linejoin: round; }
+.apta-dot { fill: #2563eb; stroke: #fff; stroke-width: 1.5; }
+.apta-val { fill: #1d4ed8; font-size: 11px; font-weight: 600; text-anchor: middle; }
+.apta-xlab { fill: #333; font-size: 12px; font-weight: 600; text-anchor: middle; }
+.apta-xsub { fill: #aaa; font-size: 9px; text-anchor: middle; }
+.apta-break { stroke: #9ca3af; stroke-width: 1.5; fill: none; }
+
+/* ── Body ── */
+.apta-body { padding: 14px 16px 20px; }
+
+/* Excel-style sheet tabs fused to the table panel below them. */
+.apta-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding-left: 6px;
+  position: relative;
+  z-index: 1;
+  flex-wrap: wrap;
+}
+.apta-tab {
+  border: 1px solid #d1d5db;
+  border-bottom: none;
+  background: #f1f3f5;
+  color: #4b5563;
+  border-radius: 7px 7px 0 0;
+  padding: 6px 14px 7px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.25;
+  margin-bottom: -1px;             /* overlap the panel's top border */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.apta-tab:hover { background: #e9ecef; }
+.apta-tab.active {
+  background: #fff;                /* same as panel → looks connected */
+  color: #2563eb;
+  font-weight: 600;
+  border-color: #d1d5db;
+  border-bottom: 1px solid #fff;   /* punch through the panel border */
+  position: relative;
+  z-index: 2;
+}
+.apta-tab-name { font-size: 12.5px; }
+.apta-tab-uniq { font-size: 10px; opacity: 0.7; }
+
+/* The panel the tabs plug into: table + pager, one connected card. */
+.apta-panel {
+  border: 1px solid #d1d5db;
+  border-radius: 0 7px 7px 7px;
+  background: #fff;
+  overflow: hidden;
+}
+.apta-tablewrap { overflow-x: auto; }
+.apta-table { width: 100%; border-collapse: collapse; }
+.apta-table th, .apta-table td {
+  padding: 6px 10px; border-bottom: 1px solid #f0f0f0; text-align: left; white-space: nowrap;
+}
+.apta-table thead th { background: #f9fafb; color: #6b7280; font-weight: 600; font-size: 11px; }
+.apta-c-rank { width: 48px; color: #9ca3af; text-align: right; }
+.apta-c-count { width: 80px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.apta-c-seq code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+.apta-empty { text-align: center; color: #999; padding: 20px; }
+
+/* primer / motif highlighting inside sequences */
+.apta-selL { color: #1d4ed8; font-weight: 600; }                      /* selection left  */
+.apta-selR { color: #047857; font-weight: 600; }                      /* selection right */
+.apta-s2   { color: #b45309; font-weight: 600; background: #fef3c7; }  /* 2nd-sort motif  */
+
+.apta-pager {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 10px; border-top: 1px solid #f0f0f0; background: #fafafa;
+}
+.apta-pg {
+  border: 1px solid #d1d5db; background: #fff; color: #374151;
+  border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px;
+}
+.apta-pg:hover:not(:disabled) { background: #f3f4f6; }
+.apta-pg:disabled { opacity: 0.4; cursor: default; }
+.apta-pg-info { color: #6b7280; font-size: 12px; font-variant-numeric: tabular-nums; }

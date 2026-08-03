@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aptaselect-viewer demo</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { margin: 0; background: #f3f4f6; }
+  #host { max-width: 920px; margin: 24px auto; background: #fff; border: 1px solid #e5e7eb;
+          border-radius: 8px; overflow: hidden; height: 80vh; overflow-y: auto; }
+  .demo-note { max-width: 920px; margin: 12px auto; font: 13px system-ui; color: #6b7280; }
+</style>
+</head>
+<body>
+<div class="demo-note">aptaselect-viewer demo — data generated in-page so each stage has &gt;25 rows (paging). <code>/file/</code> raw, <code>/data/?page=</code> paged (streaming).</div>
+<div id="host"></div>
+
+<script>
+// ── Generate a realistic-sized dataset so the table pages ──
+// A-set: 30 sequences that carry the 2nd-sort motif (pass through to Stage 4).
+// B-set: 5 with selection primers only (Stage 2/3, no motif → no yellow).
+// C-set: 5 primer-less noise (Stage 1 only).
+var SEL_L = "CCACTTCTCCTTCCATCCTAAAC", SEL_R = "GAGTAGTTTGGAGGGTTGTCTG";
+var PRE = SEL_L + "TCTCTCTCTC";                                  // + 2nd-sort left
+var POST = "CCCCGGGGTTTTACGT" + "GAGAGAGAGA" + SEL_R;            // 2nd-sort right + sel right
+var BASE = "ACGT";
+function nt4(i) { return BASE[(i >> 6) & 3] + BASE[(i >> 4) & 3] + BASE[(i >> 2) & 3] + BASE[i & 3]; }
+
+var A = [];
+for (var i = 0; i < 30; i++) A.push({ count: 400 - 9 * i, seq: PRE + nt4(i) + POST });
+
+var B40 = [
+  "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT",
+  "TTTTTTTTTTGGGGGGGGGGCCCCCCCCCCAAAAAAAAAA",
+  "GCGCGCGCGCGCGCGCGCGCATATATATATATATATATAT",
+  "AAAATTTTCCCCGGGGAAAATTTTCCCCGGGGAAAATTTT",
+  "CACACACACACACACACACAGTGTGTGTGTGTGTGTGTGT"
+];
+var Bc = [90, 85, 80, 75, 70];
+var B = B40.map(function (s, i) { return { count: Bc[i], seq: SEL_L + s + SEL_R }; });
+
+var C60 = [
+  "ACGTTGCAACGTTGCAACGTTGCAACGTTGCAACGTTGCAACGTTGCAACGTTGCAACGT",
+  "TGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCATGCA",
+  "GATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATC",
+  "AATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATT",
+  "CCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGGAATTCCGG"
+];
+var Cc = [60, 55, 50, 45, 40];
+var C = C60.map(function (s, i) { return { count: Cc[i], seq: s }; });
+
+function tsv(rows) {
+  var out = "rank\tcount\tsequence\n";
+  rows.forEach(function (r, i) { out += (i + 1) + "\t" + r.count + "\t" + r.seq + "\n"; });
+  return out;
+}
+function sum(rows) { return rows.reduce(function (a, r) { return a + r.count; }, 0); }
+
+var stage4 = A;                 // 30 rows
+var stage23 = A.concat(B);      // 35 rows
+var stage1 = A.concat(B, C);    // 40 rows
+var sA = sum(A), sAB = sum(A) + sum(B), sABC = sA + sum(B) + sum(C);
+function pct(x) { return (x / sABC * 100).toFixed(1); }
+
+var DATA = {
+  "summary.txt":
+    "Total read pairs:           " + sABC + "\n" +
+    "Stage 1 (Join):             " + sABC + " (100.0%)\n" +
+    "Stage 2 (Selection Filter): " + sAB + " (" + pct(sAB) + "%)\n" +
+    "Stage 3 (1st Sort Filter):  " + sAB + " (" + pct(sAB) + "%)\n" +
+    "Stage 4 (2nd Sort Filter):  " + sA + " (" + pct(sA) + "%)\n" +
+    "Stage 1 unique sequences:   " + stage1.length + "\n" +
+    "Stage 2 unique sequences:   " + stage23.length + "\n" +
+    "Stage 3 unique sequences:   " + stage23.length + "\n" +
+    "Stage 4 unique sequences:   " + stage4.length + "\n",
+  "stage1_joined_ranked.tsv": tsv(stage1),
+  "stage2_selection_ranked.tsv": tsv(stage23),
+  "stage3_sort1_ranked.tsv": tsv(stage23),
+  "stage4_sort2_ranked.tsv": tsv(stage4)
+};
+
+// ── Mock the server: /file/<name> serves the raw file with a real body stream,
+// exactly like the AutoPipe /file/ endpoint the plugin reads. ──
+function fileResp(body) {
+  return Promise.resolve({
+    ok: body != null,
+    status: body != null ? 200 : 404,
+    body: body != null ? new Response(body).body : null,
+    text: function () { return Promise.resolve(body != null ? body : ''); }
+  });
+}
+window.fetch = function (url) {
+  var u = new URL(String(url), location.href);
+  var path = decodeURIComponent(u.pathname);
+  if (path.indexOf('/file/') === 0) return fileResp(DATA[path.slice(6)]);
+  return fileResp(null);
+};
+</script>
+<script src="index.js"></script>
+<script>
+  window.AutoPipePlugin.render(document.getElementById('host'), '/file/summary.txt', 'summary.txt');
+</script>
+</body>
+</html>
