@@ -135,3 +135,78 @@
 .apta-pg:hover:not(:disabled) { background: #f3f4f6; }
 .apta-pg:disabled { opacity: 0.4; cursor: default; }
 .apta-pg-info { color: #6b7280; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* ── Top-level view tabs (Sequences | Motif) ── */
+.apta-viewtabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+.apta-vtab {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.apta-vtab:hover { color: #374151; }
+.apta-vtab.active { color: #2563eb; border-bottom-color: #2563eb; }
+
+/* ── Motif (MEME) view ── */
+.apta-motif {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 22px;
+}
+.apta-motif-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.apta-motif-head b { color: #111; }
+.apta-motif-list { display: flex; flex-direction: column; gap: 12px; }
+.apta-motif-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.apta-motif-open {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+}
+.apta-motif-open:hover { text-decoration: underline; }
+.apta-motif-logo img { max-height: 90px; max-width: 320px; display: block; }
+.apta-motif-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.apta-motif-rank {
+  font-size: 11px; font-weight: 700; color: #9ca3af;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.apta-motif-consensus code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px; font-weight: 600; color: #1a1a1a;
+  letter-spacing: 1px; word-break: break-all;
+}
+.apta-motif-stats {
+  display: flex; flex-wrap: wrap; gap: 6px 16px;
+  font-size: 12px; color: #6b7280; margin-top: 2px;
+}
+.apta-motif-stats b { color: #111; font-variant-numeric: tabular-nums; }
+.apta-motif-empty { color: #6b7280; font-size: 13px; padding: 16px 0; }

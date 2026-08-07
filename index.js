@@ -36,7 +36,10 @@
     page: { rows: [], total: 0 },  // rows currently shown (this page only)
     loading: false,
     reqId: 0,          // guards against out-of-order page responses
-    chartH: 0          // user-chosen graph-panel height (px), preserved across renders
+    chartH: 0,         // user-chosen graph-panel height (px), preserved across renders
+    topView: 'seq',    // 'seq' (chart + tables) | 'motif' (MEME results)
+    hasMeme: false,    // meme_out/ present → show the Motif tab
+    memeMotifs: null   // parsed motifs from meme.xml
   };
 
   // Drag-to-resize between the graph (top) and the table (bottom). Listeners are
@@ -56,6 +59,8 @@
   });
 
   function fileUrl(name) { return '/file/' + encodeURIComponent(name); }
+  // Sub-path variant that keeps '/' so nested files (e.g. meme_out/meme.xml) resolve.
+  function subUrl(path) { return '/file/' + path.split('/').map(encodeURIComponent).join('/'); }
   function fmt(n) { return Number(n).toLocaleString(); }
   function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
 
@@ -353,11 +358,107 @@
     return body;
   }
 
+  // ── Motif (MEME) view ──────────────────────────────────────────────
+  // meme_out/ is optional. If meme.xml is present the Motif tab appears and
+  // shows one card per motif (logo + consensus + width/sites/E-value), parsed
+  // from meme.xml. A link to the full MEME html report is always offered.
+  function loadMeme() {
+    return fetch(subUrl('meme_out/meme.xml')).then(function (r) {
+      if (!r.ok) return false;
+      return r.text().then(function (xml) {
+        try {
+          var doc = new DOMParser().parseFromString(xml, 'text/xml');
+          var ms = doc.getElementsByTagName('motif'), out = [];
+          for (var i = 0; i < ms.length; i++) {
+            var m = ms[i];
+            out.push({
+              consensus: m.getAttribute('name') || m.getAttribute('id') || ('motif ' + (i + 1)),
+              width: m.getAttribute('width') || '?',
+              sites: m.getAttribute('sites') || '?',
+              evalue: m.getAttribute('e_value') || m.getAttribute('evalue') || '?',
+              logo: subUrl('meme_out/logo' + (i + 1) + '.png')
+            });
+          }
+          state.memeMotifs = out;
+        } catch (e) { state.memeMotifs = null; }
+        return true; // meme.xml exists → show the tab even if parsing was thin
+      });
+    }).catch(function () { return false; });
+  }
+
+  function buildViewTabs() {
+    var t = document.createElement('div');
+    t.className = 'apta-viewtabs';
+    t.innerHTML =
+      '<button class="apta-vtab' + (state.topView === 'seq' ? ' active' : '') + '" data-view="seq">Sequences</button>' +
+      '<button class="apta-vtab' + (state.topView === 'motif' ? ' active' : '') + '" data-view="motif">Motif (MEME)</button>';
+    return t;
+  }
+
+  function buildMotif() {
+    var box = document.createElement('div');
+    box.className = 'apta-motif';
+    var report = subUrl('meme_out/meme.html');
+    var head = '<div class="apta-motif-head">' +
+      '<a class="apta-dl apta-motif-full" href="' + report + '" target="_blank" rel="noopener">View full report ↗</a></div>';
+    var list = '';
+    if (state.memeMotifs && state.memeMotifs.length) {
+      state.memeMotifs.forEach(function (m, i) {
+        list += '<div class="apta-motif-card">' +
+          '<div class="apta-motif-logo"><img src="' + m.logo + '" alt="motif ' + (i + 1) + ' logo" ' +
+            'onerror="this.parentNode.style.display=\'none\'"/></div>' +
+          '<div class="apta-motif-meta">' +
+            '<div class="apta-motif-rank">Motif ' + (i + 1) + '</div>' +
+            '<div class="apta-motif-consensus"><code>' + esc(m.consensus) + '</code></div>' +
+            '<div class="apta-motif-stats">' +
+              '<span>width <b>' + esc(m.width) + '</b></span>' +
+              '<span>sites <b>' + esc(m.sites) + '</b></span>' +
+              '<span>E-value <b>' + esc(m.evalue) + '</b></span>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      });
+    } else {
+      list = '<div class="apta-motif-empty">Motif details couldn\'t be parsed here. ' +
+        '<a href="' + report + '" target="_blank" rel="noopener">Open the MEME report</a> to view the full results.</div>';
+    }
+    box.innerHTML = head + '<div class="apta-motif-list">' + list + '</div>';
+    return box;
+  }
+
+  // View-tab clicks via delegation on the (persistent) root element. render()
+  // rebuilds root.innerHTML on every change, so per-button listeners are fragile;
+  // one delegated listener on root survives all rebuilds and is bound just once.
+  function setupViewDelegation() {
+    if (state._viewBound) return;
+    state._viewBound = true;
+    state.root.addEventListener('click', function (e) {
+      if (!e.target || !e.target.closest) return;
+      // View tab switch. (The per-card "Open report" link handles itself.)
+      var vt = e.target.closest('.apta-vtab');
+      if (vt && state.root.contains(vt)) {
+        var v = vt.getAttribute('data-view');
+        if (v !== state.topView) { state.topView = v; render(); }
+      }
+    });
+  }
+
   function render() {
     var el = state.root;
     el.innerHTML = '';
     var wrap = document.createElement('div');
     wrap.className = 'apta';
+
+    // Top-level view tabs — shown only when MEME results are present.
+    if (state.hasMeme) wrap.appendChild(buildViewTabs());
+
+    // Motif (MEME) view is separate from the sequence chart/tables.
+    if (state.topView === 'motif') {
+      wrap.appendChild(buildMotif());
+      el.appendChild(wrap);
+      return;
+    }
+
     var chart = buildChart();          // top panel (.apta-chart)
     var handle = document.createElement('div');
     handle.className = 'apta-drag';
@@ -438,12 +539,19 @@
       state.page = { rows: [], total: 0 };
       state.loading = true;
       state.reqId = 0;
+      state.topView = 'seq';
+      state.hasMeme = false;
+      state.memeMotifs = null;
+      setupViewDelegation();
       container.innerHTML = '<div class="apta-loading">Loading AptaSelect results…</div>';
 
-      fetchText('summary.txt')
-        .then(function (t) { state.summary = parseSummary(t); })
-        .catch(function () { state.summary = null; })
-        .then(function () {
+      Promise.all([
+        fetchText('summary.txt').then(function (t) { return parseSummary(t); }, function () { return null; }),
+        loadMeme()
+      ])
+        .then(function (res) {
+          state.summary = res[0];
+          state.hasMeme = res[1];
           // Default to Stage 4 (final candidates); if it's empty, fall back to
           // the deepest stage that has rows.
           return fetchPage(STAGES[3].file, 0).then(function (pg) {
@@ -467,7 +575,7 @@
       if (_cur && _cur.reader) { try { _cur.reader.cancel(); } catch (e) {} }
       _cur = null;
       if (state._ro) { try { state._ro.disconnect(); } catch (e) {} }
-      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0 };
+      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasMeme: false, memeMotifs: null };
     }
   };
 })();
