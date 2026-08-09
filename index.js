@@ -40,7 +40,8 @@
     topView: 'seq',    // 'seq' (chart + tables) | 'motif' (MEME results)
     hasSeq: false,     // sorting outputs present (summary.txt / stage tables)
     hasMeme: false,    // meme_out/ present → show the Motif tab
-    memeMotifs: null   // parsed motifs from meme.xml
+    memeMotifs: null,  // parsed motifs from meme.xml
+    memeBase: 'meme_out/'  // where meme files live: 'meme_out/' (run folder) or '' (meme_out opened directly)
   };
 
   // Drag-to-resize between the graph (top) and the table (bottom). Listeners are
@@ -364,27 +365,39 @@
   // shows one card per motif (logo + consensus + width/sites/E-value), parsed
   // from meme.xml. A link to the full MEME html report is always offered.
   function loadMeme() {
-    return fetch(subUrl('meme_out/meme.xml')).then(function (r) {
-      if (!r.ok) return false;
-      return r.text().then(function (xml) {
-        try {
-          var doc = new DOMParser().parseFromString(xml, 'text/xml');
-          var ms = doc.getElementsByTagName('motif'), out = [];
-          for (var i = 0; i < ms.length; i++) {
-            var m = ms[i];
-            out.push({
-              consensus: m.getAttribute('name') || m.getAttribute('id') || ('motif ' + (i + 1)),
-              width: m.getAttribute('width') || '?',
-              sites: m.getAttribute('sites') || '?',
-              evalue: m.getAttribute('e_value') || m.getAttribute('evalue') || '?',
-              logo: subUrl('meme_out/logo' + (i + 1) + '.png')
-            });
-          }
-          state.memeMotifs = out;
-        } catch (e) { state.memeMotifs = null; }
-        return true; // meme.xml exists → show the tab even if parsing was thin
-      });
-    }).catch(function () { return false; });
+    // meme.xml can live under two layouts depending on what was opened:
+    //   'meme_out/'  → the whole RUN folder was opened (meme_out is a subfolder)
+    //   ''           → the meme_out folder itself was opened (files at the root)
+    // Try the subfolder layout first, then fall back to the root layout, and
+    // remember the base that worked so logos/report resolve from the same place.
+    var bases = ['meme_out/', ''];
+    function tryBase(idx) {
+      if (idx >= bases.length) return Promise.resolve(false);
+      var base = bases[idx];
+      return fetch(subUrl(base + 'meme.xml')).then(function (r) {
+        if (!r.ok) return tryBase(idx + 1);
+        return r.text().then(function (xml) {
+          state.memeBase = base;
+          try {
+            var doc = new DOMParser().parseFromString(xml, 'text/xml');
+            var ms = doc.getElementsByTagName('motif'), out = [];
+            for (var i = 0; i < ms.length; i++) {
+              var m = ms[i];
+              out.push({
+                consensus: m.getAttribute('name') || m.getAttribute('id') || ('motif ' + (i + 1)),
+                width: m.getAttribute('width') || '?',
+                sites: m.getAttribute('sites') || '?',
+                evalue: m.getAttribute('e_value') || m.getAttribute('evalue') || '?',
+                logo: subUrl(base + 'logo' + (i + 1) + '.png')
+              });
+            }
+            state.memeMotifs = out;
+          } catch (e) { state.memeMotifs = null; }
+          return true; // meme.xml exists → show the tab even if parsing was thin
+        });
+      }).catch(function () { return tryBase(idx + 1); });
+    }
+    return tryBase(0);
   }
 
   function buildViewTabs() {
@@ -399,7 +412,7 @@
   function buildMotif() {
     var box = document.createElement('div');
     box.className = 'apta-motif';
-    var report = subUrl('meme_out/meme.html');
+    var report = subUrl((state.memeBase || 'meme_out/') + 'meme.html');
     var head = '<div class="apta-motif-head">' +
       '<a class="apta-dl apta-motif-full" href="' + report + '" target="_blank" rel="noopener">View full report ↗</a></div>';
     var list = '';
@@ -591,7 +604,7 @@
       if (_cur && _cur.reader) { try { _cur.reader.cancel(); } catch (e) {} }
       _cur = null;
       if (state._ro) { try { state._ro.disconnect(); } catch (e) {} }
-      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null };
+      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null, memeBase: 'meme_out/' };
     }
   };
 })();
