@@ -38,6 +38,7 @@
     reqId: 0,          // guards against out-of-order page responses
     chartH: 0,         // user-chosen graph-panel height (px), preserved across renders
     topView: 'seq',    // 'seq' (chart + tables) | 'motif' (MEME results)
+    hasSeq: false,     // sorting outputs present (summary.txt / stage tables)
     hasMeme: false,    // meme_out/ present → show the Motif tab
     memeMotifs: null   // parsed motifs from meme.xml
   };
@@ -449,8 +450,16 @@
     var wrap = document.createElement('div');
     wrap.className = 'apta';
 
-    // Top-level view tabs — shown only when MEME results are present.
-    if (state.hasMeme) wrap.appendChild(buildViewTabs());
+    // meme-only mode: MEME results but no sorting outputs (e.g. meme_out opened
+    // directly) → show just the Motif view, no top-level tabs.
+    if (state.hasMeme && !state.hasSeq) {
+      wrap.appendChild(buildMotif());
+      el.appendChild(wrap);
+      return;
+    }
+
+    // Both present → top-level view tabs (Sequences | Motif).
+    if (state.hasMeme && state.hasSeq) wrap.appendChild(buildViewTabs());
 
     // Motif (MEME) view is separate from the sequence chart/tables.
     if (state.topView === 'motif') {
@@ -540,6 +549,7 @@
       state.loading = true;
       state.reqId = 0;
       state.topView = 'seq';
+      state.hasSeq = false;
       state.hasMeme = false;
       state.memeMotifs = null;
       setupViewDelegation();
@@ -555,6 +565,12 @@
           // Default to Stage 4 (final candidates); if it's empty, fall back to
           // the deepest stage that has rows.
           return fetchPage(STAGES[3].file, 0).then(function (pg) {
+            state.hasSeq = !!state.summary || pg.rows.length > 0;
+            // meme-only: MEME results present but no sorting outputs (meme_out
+            // opened directly) → show the Motif view only, skip stage probing.
+            if (!state.hasSeq && state.hasMeme) {
+              state.topView = 'motif'; state.loading = false; render(); return;
+            }
             if (pg.rows.length) { state.curStage = 3; state.page = pg; state.loading = false; render(); return; }
             // probe earlier stages
             var i = 2;
@@ -575,7 +591,7 @@
       if (_cur && _cur.reader) { try { _cur.reader.cancel(); } catch (e) {} }
       _cur = null;
       if (state._ro) { try { state._ro.disconnect(); } catch (e) {} }
-      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasMeme: false, memeMotifs: null };
+      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null };
     }
   };
 })();
