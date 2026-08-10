@@ -421,9 +421,10 @@
     var list = '';
     if (state.memeMotifs && state.memeMotifs.length) {
       state.memeMotifs.forEach(function (m, i) {
+        // Logo image intentionally omitted from the cards: the PNGs are slow to
+        // load and the same logos appear in the full MEME report anyway. The
+        // "View full report" link (above) still shows them.
         list += '<div class="apta-motif-card">' +
-          '<div class="apta-motif-logo"><img src="' + m.logo + '" alt="motif ' + (i + 1) + ' logo" ' +
-            'onerror="this.parentNode.style.display=\'none\'"/></div>' +
           '<div class="apta-motif-meta">' +
             '<div class="apta-motif-rank">Motif ' + (i + 1) + '</div>' +
             '<div class="apta-motif-consensus"><code>' + esc(m.consensus) + '</code></div>' +
