@@ -412,7 +412,10 @@
   function buildMotif() {
     var box = document.createElement('div');
     box.className = 'apta-motif';
-    var report = subUrl((state.memeBase || 'meme_out/') + 'meme.html');
+    // memeBase is '' when the meme_out folder was opened directly; a falsy-OR
+    // would wrongly rewrite that back to 'meme_out/', so use it as-is.
+    var base = typeof state.memeBase === 'string' ? state.memeBase : 'meme_out/';
+    var report = subUrl(base + 'meme.html');
     var head = '<div class="apta-motif-head">' +
       '<a class="apta-dl apta-motif-full" href="' + report + '" target="_blank" rel="noopener">View full report ↗</a></div>';
     var list = '';
