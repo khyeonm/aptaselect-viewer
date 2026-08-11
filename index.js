@@ -136,16 +136,40 @@
   }
 
   // Streaming line paging over the raw TSV at /file/<name>. The whole file is
-  // never loaded: we read the response body forward, skip the header + earlier
-  // pages, take PAGE_SIZE lines, then stop — so a huge stage file only streams
-  // its leading bytes. A cursor is reused when paging forward (Next); Prev or a
-  // tab switch reopens from the top. Total row count comes from summary.txt.
-  var _cur = null; // { name, page, reader, dec, buf, eof }
+  // never loaded: we read forward, skip the header + earlier pages, take
+  // PAGE_SIZE lines, then stop. Small files stream whole; large files (which the
+  // server only serves via Range) are stitched from CHUNK-sized byte windows,
+  // fetching the next window on demand so paging can go arbitrarily deep. A
+  // cursor is reused when paging forward (Next); Prev/jump reopens from the top.
+  // Visited pages are cached so re-visits (back/forward) render instantly.
+  var _cur = null;         // { name, page, reader, dec, buf, eof, any, ranged, off, total }
+  var _pageCache = {};     // name + '#' + page -> { rows, total }
+  var CHUNK = 65536;       // 64KB per Range window for large files
+
+  function _fetchChunk(name, start, total) {
+    // Fetch bytes [start, end] (end clamped to the file size). Returns
+    // { reader, total } or null past EOF.
+    var end = start + CHUNK - 1;
+    if (total != null && total > 0 && end > total - 1) end = total - 1;
+    if (total != null && total > 0 && start > end) return Promise.resolve(null);
+    return fetch(fileUrl(name), { headers: { Range: 'bytes=' + start + '-' + end } }).then(function (r) {
+      if (r.status === 416) return null;
+      if (!r.ok || !r.body) throw new Error(name + ' HTTP ' + (r.status || '?'));
+      var t = null, cr = r.headers.get('Content-Range');
+      if (cr) { var mm = cr.match(/\/(\d+)\s*$/); if (mm) t = +mm[1]; }
+      return { reader: r.body.getReader(), total: t };
+    });
+  }
 
   function _open(name) {
+    // Plain GET first: a small file comes back whole; a large file comes back
+    // with an empty body but a Content-Length (the server requires Range for
+    // those). _line detects the empty body and switches to Range windows.
     return fetch(fileUrl(name)).then(function (r) {
       if (!r.ok || !r.body) throw new Error(name + ' HTTP ' + (r.status || '?'));
-      return { name: name, page: -1, reader: r.body.getReader(), dec: new TextDecoder(), buf: '', eof: false };
+      var clen = parseInt(r.headers.get('Content-Length') || '0', 10) || 0;
+      return { name: name, page: -1, dec: new TextDecoder(), buf: '', eof: false,
+               reader: r.body.getReader(), any: false, ranged: false, off: 0, total: clen };
     });
   }
   function _line(c) {
@@ -154,10 +178,28 @@
         var nl = c.buf.indexOf('\n');
         if (nl >= 0) { var l = c.buf.slice(0, nl); c.buf = c.buf.slice(nl + 1); resolve(l); return; }
         if (c.eof) { if (c.buf.length) { var t = c.buf; c.buf = ''; resolve(t); } else resolve(null); return; }
+        if (!c.reader) {
+          // Ranged mode: pull the next byte window, or finish.
+          if (!c.ranged || (c.total != null && c.off >= c.total)) { c.eof = true; pump(); return; }
+          _fetchChunk(c.name, c.off, c.total).then(function (ch) {
+            if (!ch) { c.eof = true; pump(); return; }
+            c.reader = ch.reader; if (ch.total != null) c.total = ch.total; c.off += CHUNK; pump();
+          }).catch(function () { c.eof = true; pump(); });
+          return;
+        }
         c.reader.read().then(function (res) {
-          if (res.done) { c.eof = true; pump(); return; }
+          if (res.done) {
+            if (!c.any && !c.ranged && c.total > 0) {
+              // Empty body for a non-empty file → large file served only via
+              // Range. Switch to windowed streaming from the top.
+              c.ranged = true; c.off = 0; c.reader = null; pump(); return;
+            }
+            if (c.ranged) { c.reader = null; pump(); return; } // window done → next
+            c.eof = true; pump(); return;                      // small file done
+          }
+          c.any = true;
           c.buf += c.dec.decode(res.value, { stream: true }); pump();
-        }).catch(function () { c.eof = true; pump(); });
+        }).catch(function () { c.reader = null; c.eof = true; pump(); });
       })();
     });
   }
@@ -169,6 +211,8 @@
     })();
   }
   function fetchPage(name, page) {
+    var key = name + '#' + page;
+    if (_pageCache[key]) return Promise.resolve(_pageCache[key]); // instant re-visit
     var reuse = _cur && _cur.name === name && _cur.page === page - 1 && !_cur.eof;
     var setup = reuse ? Promise.resolve(_cur) : _open(name).then(function (c) {
       if (_cur && _cur.reader) { try { _cur.reader.cancel(); } catch (e) {} }
@@ -186,7 +230,9 @@
         c.page = page;
         var rows = lines.map(function (ln) { var x = ln.split('\t'); return { rank: +x[0], count: +x[1], seq: x[2] }; })
           .filter(function (r) { return r.seq && !isNaN(r.rank); });
-        return { rows: rows, total: null }; // total comes from summary.txt
+        var result = { rows: rows, total: null }; // total comes from summary.txt
+        _pageCache[key] = result;                  // cache for instant back/forward
+        return result;
       });
     }).catch(function () { return { rows: [], total: null }; });
   }
@@ -569,6 +615,10 @@
       state.hasSeq = false;
       state.hasMeme = false;
       state.memeMotifs = null;
+      // Fresh streaming state + page cache for this run.
+      if (_cur && _cur.reader) { try { _cur.reader.cancel(); } catch (e) {} }
+      _cur = null;
+      _pageCache = {};
       setupViewDelegation();
       container.innerHTML = '<div class="apta-loading">Loading AptaSelect results…</div>';
 
@@ -607,6 +657,7 @@
     destroy: function () {
       if (_cur && _cur.reader) { try { _cur.reader.cancel(); } catch (e) {} }
       _cur = null;
+      _pageCache = {};
       if (state._ro) { try { state._ro.disconnect(); } catch (e) {} }
       state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null, memeBase: 'meme_out/' };
     }
