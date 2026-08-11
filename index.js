@@ -162,14 +162,25 @@
   }
 
   function _open(name) {
-    // Plain GET first: a small file comes back whole; a large file comes back
-    // with an empty body but a Content-Length (the server requires Range for
-    // those). _line detects the empty body and switches to Range windows.
-    return fetch(fileUrl(name)).then(function (r) {
-      if (!r.ok || !r.body) throw new Error(name + ' HTTP ' + (r.status || '?'));
-      var clen = parseInt(r.headers.get('Content-Length') || '0', 10) || 0;
-      return { name: name, page: -1, dec: new TextDecoder(), buf: '', eof: false,
-               reader: r.body.getReader(), any: false, ranged: false, off: 0, total: clen };
+    // Learn the file size from a 1-byte Range probe. This works for any size and
+    // never touches the "empty body + huge Content-Length" response the server
+    // sends for large files (which can surface as a stream error, not a clean
+    // EOF). With the size known we stream fixed windows clamped to it, so small
+    // and multi-GB files use the same safe path.
+    return fetch(fileUrl(name), { headers: { Range: 'bytes=0-0' } }).then(function (r) {
+      var total = null, cr = r.headers.get('Content-Range');
+      if (cr) { var mm = cr.match(/\/(\d+)\s*$/); if (mm) total = +mm[1]; }
+      if (r.body) { try { r.body.cancel(); } catch (e) {} } // discard the probe byte
+      if (total != null) {
+        return { name: name, page: -1, dec: new TextDecoder(), buf: '', eof: false,
+                 reader: null, any: false, ranged: true, off: 0, total: total };
+      }
+      // Fallback (server gave no Content-Range): stream a plain GET whole.
+      return fetch(fileUrl(name)).then(function (r2) {
+        if (!r2.ok || !r2.body) throw new Error(name + ' HTTP ' + (r2.status || '?'));
+        return { name: name, page: -1, dec: new TextDecoder(), buf: '', eof: false,
+                 reader: r2.body.getReader(), any: false, ranged: false, off: 0, total: null };
+      });
     });
   }
   function _line(c) {
