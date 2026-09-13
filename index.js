@@ -14,6 +14,7 @@
   'use strict';
 
   var STAGES = [
+    { file: 'stage0_raw.ranked.tsv',           label: 'Raw',      sub: 'Stage 0' },
     { file: 'stage1_matching.ranked.tsv',      label: 'Matching', sub: 'Stage 1' },
     { file: 'stage2_flanking.ranked.tsv',      label: 'Flanking', sub: 'Stage 2' },
     { file: 'stage3_random_region.ranked.tsv', label: 'N region', sub: 'Stage 3' }
@@ -30,7 +31,7 @@
   var state = {
     root: null,
     summary: null,     // { total, stages:[{pass,pct,uniq}] }
-    curStage: 2,
+    curStage: 3,
     curPage: 0,
     page: { rows: [], total: 0 },  // rows currently shown (this page only)
     loading: false,
@@ -257,17 +258,20 @@
     // The pipeline does not emit per-stage unique counts, so uniq stays null and
     // the per-stage % is derived from the survivor counts vs the raw total.
     var out = { total: 0, stages: [] };
-    var pass = {};
+    var pass = {}, rawUniq = null;
     text.split(/\r?\n/).forEach(function (ln) {
       var x = ln.split('\t');
       if (x.length < 2) return;
       var k = x[0].trim(), v = parseInt(x[1], 10);
       if (isNaN(v)) return;
-      if (k === 'total_reads_processed' || k === 'total_input' || k === 'total_input_reads' || k === 'total_reads') out.total = v;
+      if (k === 'total_reads_processed' || k === 'total_input' || k === 'total_input_reads' || k === 'total_reads' || k === 'raw_reads') out.total = v;
+      else if (k === 'raw_unique_sequences' || k === 'raw_unique' || k === 'stage0_raw_unique' || k === 'raw_unique_count' || k === 'unique_raw_sequences') rawUniq = v;
       else if (k === 'stage1_matching_survivors' || k === 'stage1_matching') pass[1] = v;
       else if (k === 'stage2_flanking_survivors' || k === 'stage2_flanking') pass[2] = v;
       else if (k === 'stage3_random_region_survivors' || k === 'stage3_random_region' || k === 'stage3_n_extraction') pass[3] = v;
     });
+    // Stage 0 = raw: pass = total reads (non-deduplicated), uniq = deduplicated raw count.
+    out.stages.push({ pass: out.total || null, pct: (out.total ? 100 : null), uniq: rawUniq });
     for (var i = 1; i <= 3; i++) {
       var p = pass[i] != null ? pass[i] : null;
       out.stages.push({ pass: p, pct: (p != null && out.total) ? (100 * p / out.total) : null, uniq: null });
@@ -332,7 +336,10 @@
     if (!holder || !holder.isConnected) return;
     var W = holder.clientWidth, H = holder.clientHeight;
     if (W < 40 || H < 40) return;
-    var vals = STAGES.map(function (_, i) { var p = stagePass(i); return p != null ? p : 0; });
+    // Chart points follow STAGES (Raw · Matching · Flanking · N). Raw's value is
+    // the total read count (non-deduplicated); the other stages use survivor counts.
+    var chartPoints = STAGES.map(function (s, i) { var p = stagePass(i); return { val: p != null ? p : 0, label: s.label, sub: s.sub }; });
+    var vals = chartPoints.map(function (p) { return p.val; });
     if (!vals.some(function (v) { return v > 0; })) return;
 
     var padL = 56, padR = 20, padT = 22, padB = 40;
@@ -351,7 +358,7 @@
     if (yMax <= yMin) yMax = yMin + 1;
 
     var innerW = W - padL - padR, innerH = H - padT - padB;
-    function x(i) { return padL + innerW * i / (STAGES.length - 1); }
+    function x(i) { return chartPoints.length > 1 ? padL + innerW * i / (chartPoints.length - 1) : padL + innerW / 2; }
     function y(v) { return padT + innerH * (1 - (v - yMin) / (yMax - yMin)); }
 
     // viewBox matches the pixel box → 1:1, so text keeps its CSS px size.
@@ -370,11 +377,11 @@
     vals.forEach(function (v, i) {
       // Anchor the edge labels inward so "Join" / "2nd Sort" don't clip at the
       // panel edges (style attr overrides the CSS text-anchor).
-      var anc = i === 0 ? 'start' : (i === STAGES.length - 1 ? 'end' : 'middle');
+      var anc = i === 0 ? 'start' : (i === chartPoints.length - 1 ? 'end' : 'middle');
       svg += '<circle class="apta-dot" cx="' + x(i) + '" cy="' + y(v) + '" r="4"/>';
       svg += '<text class="apta-val" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (y(v) - 10) + '">' + fmt(v) + '</text>';
-      svg += '<text class="apta-xlab" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (H - 16) + '">' + STAGES[i].label + '</text>';
-      svg += '<text class="apta-xsub" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (H - 3) + '">' + STAGES[i].sub + '</text>';
+      svg += '<text class="apta-xlab" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (H - 16) + '">' + chartPoints[i].label + '</text>';
+      svg += '<text class="apta-xsub" style="text-anchor:' + anc + '" x="' + x(i) + '" y="' + (H - 3) + '">' + chartPoints[i].sub + '</text>';
     });
     svg += '</svg>';
     holder.innerHTML = svg;
@@ -636,7 +643,7 @@
   window.AutoPipePlugin = {
     render: function (container /*, fileUrl, filename */) {
       state.root = container;
-      state.curStage = 2;
+      state.curStage = 3;
       state.curPage = 0;
       state.page = { rows: [], total: 0 };
       state.loading = true;
@@ -661,16 +668,16 @@
           state.hasMeme = res[1];
           // Default to the final stage (N region); if it's empty, fall back to
           // the deepest stage that has rows.
-          return fetchPage(STAGES[2].file, 0).then(function (pg) {
+          return fetchPage(STAGES[3].file, 0).then(function (pg) {
             state.hasSeq = !!state.summary || pg.rows.length > 0;
             // meme-only: MEME results present but no sorting outputs (meme_out
             // opened directly) → show the Motif view only, skip stage probing.
             if (!state.hasSeq && state.hasMeme) {
               state.topView = 'motif'; state.loading = false; render(); return;
             }
-            if (pg.rows.length) { state.curStage = 2; state.page = pg; state.loading = false; render(); return; }
+            if (pg.rows.length) { state.curStage = 3; state.page = pg; state.loading = false; render(); return; }
             // probe earlier stages
-            var i = 1;
+            var i = 2;
             (function tryStage() {
               if (i < 0) { state.loading = false; render(); return; }
               fetchPage(STAGES[i].file, 0).then(function (p2) {
@@ -689,7 +696,7 @@
       _cur = null;
       _pageCache = {};
       if (state._ro) { try { state._ro.disconnect(); } catch (e) {} }
-      state = { root: null, summary: null, curStage: 2, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null, memeBase: 'meme_out/' };
+      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null, memeBase: 'meme_out/' };
     }
   };
 })();
