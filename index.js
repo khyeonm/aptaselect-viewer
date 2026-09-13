@@ -14,10 +14,9 @@
   'use strict';
 
   var STAGES = [
-    { file: 'stage1_joined_ranked.tsv',    label: 'Join',      sub: 'Stage 1' },
-    { file: 'stage2_selection_ranked.tsv', label: 'Selection', sub: 'Stage 2' },
-    { file: 'stage3_sort1_ranked.tsv',     label: '1st Sort',  sub: 'Stage 3' },
-    { file: 'stage4_sort2_ranked.tsv',     label: '2nd Sort',  sub: 'Stage 4' }
+    { file: 'stage1_matching.ranked.tsv',      label: 'Matching', sub: 'Stage 1' },
+    { file: 'stage2_flanking.ranked.tsv',      label: 'Flanking', sub: 'Stage 2' },
+    { file: 'stage3_random_region.ranked.tsv', label: 'N region', sub: 'Stage 3' }
   ];
   var PAGE_SIZE = 20;
 
@@ -31,7 +30,7 @@
   var state = {
     root: null,
     summary: null,     // { total, stages:[{pass,pct,uniq}] }
-    curStage: 3,
+    curStage: 2,
     curPage: 0,
     page: { rows: [], total: 0 },  // rows currently shown (this page only)
     loading: false,
@@ -110,7 +109,7 @@
     return out;
   }
   function downloadAllZip() {
-    var names = STAGES.map(function (s) { return s.file; }).concat(['summary.txt']);
+    var names = STAGES.map(function (s) { return s.file; }).concat(['survival_summary.tsv']);
     Promise.all(names.map(function (n) {
       return fetch(fileUrl(n))
         .then(function (r) { return r.ok ? r.arrayBuffer() : null; })
@@ -239,8 +238,8 @@
     return setup.then(function (c) {
       return _lines(c, PAGE_SIZE).then(function (lines) {
         c.page = page;
-        var rows = lines.map(function (ln) { var x = ln.split('\t'); return { rank: +x[0], count: +x[1], seq: x[2] }; })
-          .filter(function (r) { return r.seq && !isNaN(r.rank); });
+        var rows = lines.map(function (ln, idx) { var x = ln.split('\t'); return { rank: page * PAGE_SIZE + idx + 1, count: +x[1], seq: x[0] }; })
+          .filter(function (r) { return r.seq && !isNaN(r.count); });
         var result = { rows: rows, total: null }; // total comes from summary.txt
         _pageCache[key] = result;                  // cache for instant back/forward
         return result;
@@ -249,16 +248,29 @@
   }
 
   function parseSummary(text) {
+    // survival_summary.tsv is a two-column "metric<TAB>value" table:
+    //   total_reads_processed        <N>
+    //   stage1_matching_survivors    <N>
+    //   stage2_flanking_survivors    <N>
+    //   stage3_random_region_survivors <N>
+    //   derived_insert_length        <N>
+    // The pipeline does not emit per-stage unique counts, so uniq stays null and
+    // the per-stage % is derived from the survivor counts vs the raw total.
     var out = { total: 0, stages: [] };
-    var m = text.match(/Total read pairs:\s*(\d+)/);
-    if (m) out.total = parseInt(m[1], 10);
-    var passRe = /Stage\s*(\d)\s*\([^)]*\):\s*(\d+)\s*\(([\d.]+)%\)/g;
-    var uniqRe = /Stage\s*(\d)\s*unique sequences:\s*(\d+)/g;
-    var pass = {}, uniq = {}, mm;
-    while ((mm = passRe.exec(text))) pass[mm[1]] = { pass: +mm[2], pct: +mm[3] };
-    while ((mm = uniqRe.exec(text))) uniq[mm[1]] = +mm[2];
-    for (var i = 1; i <= 4; i++) {
-      out.stages.push({ pass: pass[i] ? pass[i].pass : null, pct: pass[i] ? pass[i].pct : null, uniq: uniq[i] != null ? uniq[i] : null });
+    var pass = {};
+    text.split(/\r?\n/).forEach(function (ln) {
+      var x = ln.split('\t');
+      if (x.length < 2) return;
+      var k = x[0].trim(), v = parseInt(x[1], 10);
+      if (isNaN(v)) return;
+      if (k === 'total_reads_processed' || k === 'total_input' || k === 'total_input_reads' || k === 'total_reads') out.total = v;
+      else if (k === 'stage1_matching_survivors' || k === 'stage1_matching') pass[1] = v;
+      else if (k === 'stage2_flanking_survivors' || k === 'stage2_flanking') pass[2] = v;
+      else if (k === 'stage3_random_region_survivors' || k === 'stage3_random_region' || k === 'stage3_n_extraction') pass[3] = v;
+    });
+    for (var i = 1; i <= 3; i++) {
+      var p = pass[i] != null ? pass[i] : null;
+      out.stages.push({ pass: p, pct: (p != null && out.total) ? (100 * p / out.total) : null, uniq: null });
     }
     return out;
   }
@@ -309,7 +321,7 @@
     box.innerHTML = head;
     var holder = document.createElement('div');
     holder.className = 'apta-svg-holder';
-    if (!haveData) holder.innerHTML = '<div class="apta-chart-empty">summary.txt not found — trend unavailable</div>';
+    if (!haveData) holder.innerHTML = '<div class="apta-chart-empty">survival_summary.tsv not found — trend unavailable</div>';
     box.appendChild(holder);
     state._chartHolder = holder;
     return box;
@@ -384,7 +396,8 @@
     tabs += '</div>';
 
     var total = stageTotalRows(state.curStage);
-    var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    var totalKnown = total > 0;
+    var totalPages = totalKnown ? Math.max(1, Math.ceil(total / PAGE_SIZE)) : null;
     var start = state.curPage * PAGE_SIZE;
 
     var tbl = '<div class="apta-panel"><div class="apta-tablewrap"><table class="apta-table"><thead><tr>' +
@@ -403,13 +416,19 @@
     }
     tbl += '</tbody></table></div>';
 
-    var shownFrom = total ? (start + 1) : 0;
-    var shownTo = Math.min(start + PAGE_SIZE, total);
+    var shownFrom = state.page.rows.length ? (start + 1) : 0;
+    var shownTo = start + state.page.rows.length;
+    // With a known total, cap paging at the last page. Without one (the survivor
+    // summary has no unique count), keep Next enabled while the page is full —
+    // a short page means we've reached the end.
+    var canNext = state.loading ? false : (totalKnown ? (state.curPage < totalPages - 1) : (state.page.rows.length >= PAGE_SIZE));
+    var pageInfo = totalKnown
+      ? ('Page ' + (state.curPage + 1) + ' / ' + totalPages + ' · ranks ' + shownFrom + '–' + shownTo + ' of ' + fmt(total))
+      : ('Page ' + (state.curPage + 1) + ' · ranks ' + shownFrom + '–' + shownTo);
     var pager = '<div class="apta-pager">' +
       '<button class="apta-pg" data-pg="prev"' + (state.curPage <= 0 || state.loading ? ' disabled' : '') + '>&laquo; Prev</button>' +
-      '<span class="apta-pg-info">Page ' + (state.curPage + 1) + ' / ' + totalPages +
-      ' · ranks ' + shownFrom + '–' + shownTo + ' of ' + fmt(total) + '</span>' +
-      '<button class="apta-pg" data-pg="next"' + (state.curPage >= totalPages - 1 || state.loading ? ' disabled' : '') + '>Next &raquo;</button>' +
+      '<span class="apta-pg-info">' + pageInfo + '</span>' +
+      '<button class="apta-pg" data-pg="next"' + (canNext ? '' : ' disabled') + '>Next &raquo;</button>' +
       '</div>';
     tbl += pager + '</div>';
 
@@ -617,7 +636,7 @@
   window.AutoPipePlugin = {
     render: function (container /*, fileUrl, filename */) {
       state.root = container;
-      state.curStage = 3;
+      state.curStage = 2;
       state.curPage = 0;
       state.page = { rows: [], total: 0 };
       state.loading = true;
@@ -634,24 +653,24 @@
       container.innerHTML = '<div class="apta-loading">Loading AptaSelect results…</div>';
 
       Promise.all([
-        fetchText('summary.txt').then(function (t) { return parseSummary(t); }, function () { return null; }),
+        fetchText('survival_summary.tsv').then(function (t) { return parseSummary(t); }, function () { return null; }),
         loadMeme()
       ])
         .then(function (res) {
           state.summary = res[0];
           state.hasMeme = res[1];
-          // Default to Stage 4 (final candidates); if it's empty, fall back to
+          // Default to the final stage (N region); if it's empty, fall back to
           // the deepest stage that has rows.
-          return fetchPage(STAGES[3].file, 0).then(function (pg) {
+          return fetchPage(STAGES[2].file, 0).then(function (pg) {
             state.hasSeq = !!state.summary || pg.rows.length > 0;
             // meme-only: MEME results present but no sorting outputs (meme_out
             // opened directly) → show the Motif view only, skip stage probing.
             if (!state.hasSeq && state.hasMeme) {
               state.topView = 'motif'; state.loading = false; render(); return;
             }
-            if (pg.rows.length) { state.curStage = 3; state.page = pg; state.loading = false; render(); return; }
+            if (pg.rows.length) { state.curStage = 2; state.page = pg; state.loading = false; render(); return; }
             // probe earlier stages
-            var i = 2;
+            var i = 1;
             (function tryStage() {
               if (i < 0) { state.loading = false; render(); return; }
               fetchPage(STAGES[i].file, 0).then(function (p2) {
@@ -670,7 +689,7 @@
       _cur = null;
       _pageCache = {};
       if (state._ro) { try { state._ro.disconnect(); } catch (e) {} }
-      state = { root: null, summary: null, curStage: 3, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null, memeBase: 'meme_out/' };
+      state = { root: null, summary: null, curStage: 2, curPage: 0, page: { rows: [], total: 0 }, loading: false, reqId: 0, chartH: 0, topView: 'seq', hasSeq: false, hasMeme: false, memeMotifs: null, memeBase: 'meme_out/' };
     }
   };
 })();
