@@ -394,10 +394,12 @@
 
     var tabs = '<div class="apta-tabs" role="tablist">';
     STAGES.forEach(function (s, i) {
-      var uniq = stageUniq(i);
+      // Show the non-deduplicated read count (survivors), matching the top chart,
+      // on every stage tab — not the unique-sequence count.
+      var pass = stagePass(i);
       tabs += '<button class="apta-tab' + (i === state.curStage ? ' active' : '') + '" data-stage="' + i + '" role="tab">' +
         '<span class="apta-tab-name">' + s.label + '</span>' +
-        (uniq != null ? '<span class="apta-tab-uniq">' + fmt(uniq) + ' seq</span>' : '') +
+        (pass != null ? '<span class="apta-tab-uniq">' + fmt(pass) + ' seq</span>' : '') +
         '</button>';
     });
     tabs += '</div>';
