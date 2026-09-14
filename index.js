@@ -241,11 +241,15 @@
         c.page = page;
         var rows = lines.map(function (ln, idx) { var x = ln.split('\t'); return { rank: page * PAGE_SIZE + idx + 1, count: +x[1], seq: x[0] }; })
           .filter(function (r) { return r.seq && !isNaN(r.count); });
-        var result = { rows: rows, total: null }; // total comes from summary.txt
+        // `more` tracks whether a FULL page of lines was read (before the
+        // seq/count filter). Using the filtered rows.length here would wrongly
+        // signal "last page" whenever a page contains a dropped row (e.g. an
+        // empty-core flanking sequence), stranding Next mid-file.
+        var result = { rows: rows, total: null, more: lines.length >= PAGE_SIZE };
         _pageCache[key] = result;                  // cache for instant back/forward
         return result;
       });
-    }).catch(function () { return { rows: [], total: null }; });
+    }).catch(function () { return { rows: [], total: null, more: false }; });
   }
 
   function parseSummary(text) {
@@ -430,7 +434,7 @@
     // With a known total, cap paging at the last page. Without one (the survivor
     // summary has no unique count), keep Next enabled while the page is full —
     // a short page means we've reached the end.
-    var canNext = state.loading ? false : (totalKnown ? (state.curPage < totalPages - 1) : (state.page.rows.length >= PAGE_SIZE));
+    var canNext = state.loading ? false : (totalKnown ? (state.curPage < totalPages - 1) : !!state.page.more);
     var pageInfo = totalKnown
       ? ('Page ' + (state.curPage + 1) + ' / ' + totalPages + ' · ranks ' + shownFrom + '–' + shownTo + ' of ' + fmt(total))
       : ('Page ' + (state.curPage + 1) + ' · ranks ' + shownFrom + '–' + shownTo);
@@ -625,7 +629,7 @@
         // long as the current page came back full.
         var canNext = totalKnown
           ? (state.curPage < totalPages - 1)
-          : (state.page.rows.length >= PAGE_SIZE);
+          : !!state.page.more;
         var pg = this.getAttribute('data-pg');
         if (pg === 'prev' && state.curPage > 0) loadStage(state.curStage, state.curPage - 1);
         else if (pg === 'next' && canNext) loadStage(state.curStage, state.curPage + 1);
