@@ -1,6 +1,6 @@
 {
   "name": "aptaselect-viewer",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "AptaSelect pipeline dashboard: per-stage count trend + count-ranked table, plus a Motif tab for MEME results",
   "plugin_type": "pipeline",
   "pipeline_match": {

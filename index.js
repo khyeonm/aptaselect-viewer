@@ -618,10 +618,17 @@
     el.querySelectorAll('.apta-pg').forEach(function (b) {
       b.addEventListener('click', function () {
         var total = stageTotalRows(state.curStage);
+        var totalKnown = total > 0;
         var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+        // Mirror the render-time canNext logic: when the total is unknown
+        // (large streamed stages have no summary unique count), allow Next as
+        // long as the current page came back full.
+        var canNext = totalKnown
+          ? (state.curPage < totalPages - 1)
+          : (state.page.rows.length >= PAGE_SIZE);
         var pg = this.getAttribute('data-pg');
         if (pg === 'prev' && state.curPage > 0) loadStage(state.curStage, state.curPage - 1);
-        else if (pg === 'next' && state.curPage < totalPages - 1) loadStage(state.curStage, state.curPage + 1);
+        else if (pg === 'next' && canNext) loadStage(state.curStage, state.curPage + 1);
       });
     });
   }
